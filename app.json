@@ -1,13 +1,16 @@
 {
   "expo": {
-    "name": "juchamowa",
+    "name": "주차모아",
     "slug": "juchamowa",
+    "scheme": "juchamowa",
     "version": "1.0.0",
+    "description": "AI 공간 검증과 호스트 사전승인으로 안심하고 빌리는 사유지 주차 플랫폼",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.juchamowa.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -16,10 +19,23 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.juchamowa.app"
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "name": "주차모아"
+    },
+    "plugins": [
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "주차모아가 AI 주차공간 모델 생성을 위해 선택한 사진에 접근합니다.",
+          "cameraPermission": "주차모아가 주차공간을 촬영하기 위해 카메라에 접근합니다.",
+          "microphonePermission": false
+        }
+      ],
+      "expo-font"
+    ]
   }
 }
