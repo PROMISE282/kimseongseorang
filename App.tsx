@@ -1,116 +1,73 @@
+import {
+  DarkTheme as NavDarkTheme,
+  DefaultTheme as NavLightTheme,
+  NavigationContainer,
+  type Theme as NavTheme,
+} from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState } from 'react';
-import { Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
-import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { useMemo } from 'react';
+import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 
-import { BookingSheet } from './src/components/BookingSheet';
-import { BottomNav } from './src/components/BottomNav';
-import { spaces } from './src/data';
-import { HomeScreen } from './src/screens/HomeScreen';
-import { MapScreen } from './src/screens/MapScreen';
-import { MyScreen } from './src/screens/MyScreen';
-import { RegisterScreen } from './src/screens/RegisterScreen';
-import { RequestsScreen } from './src/screens/RequestsScreen';
-import { SpaceDetailScreen } from './src/screens/SpaceDetailScreen';
-import { colors, radii, shadow } from './src/theme';
-import type { ApprovalStatus, Space, TabKey } from './src/types';
+import { ToastProvider } from './src/components/ToastProvider';
+import { RootNavigator } from './src/navigation/RootNavigator';
+import { StoreProvider, useStore } from './src/store/StoreProvider';
+import { ThemeProvider, useTheme } from './src/theme/ThemeProvider';
 
-export default function App() {
-  const { width } = useWindowDimensions();
-  const [tab, setTab] = useState<TabKey>('home');
-  const [selectedSpace, setSelectedSpace] = useState<Space | null>(null);
-  const [bookingOpen, setBookingOpen] = useState(false);
-  const [duration, setDuration] = useState<1 | 2 | 4>(2);
-  const [approvalStatus, setApprovalStatus] = useState<ApprovalStatus>('none');
-  const [hostRequestStatus, setHostRequestStatus] = useState<'pending' | 'approved' | 'rejected'>('pending');
-  const [toast, setToast] = useState<string | null>(null);
+function NavTree() {
+  const { mode, colors } = useTheme();
+  const { state } = useStore();
 
-  useEffect(() => {
-    if (!toast) return;
-    const timer = setTimeout(() => setToast(null), 2600);
-    return () => clearTimeout(timer);
-  }, [toast]);
+  const navTheme = useMemo<NavTheme>(() => {
+    const base = mode === 'dark' ? NavDarkTheme : NavLightTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        primary: colors.blue,
+        background: colors.background,
+        card: colors.surface,
+        text: colors.ink,
+        border: colors.line,
+        notification: colors.danger,
+      },
+    };
+  }, [mode, colors]);
 
-  const openTab = (nextTab: TabKey) => {
-    setSelectedSpace(null);
-    setBookingOpen(false);
-    setTab(nextTab);
-  };
-
-  const openSpace = (space: Space) => {
-    setSelectedSpace(space);
-    setBookingOpen(false);
-  };
-
-  const submitApproval = () => {
-    setApprovalStatus('pending');
-    setBookingOpen(false);
-    setSelectedSpace(null);
-    setTab('requests');
-    setToast('호스트에게 승인 요청을 보냈어요');
-  };
-
-  const approveHostRequest = () => {
-    setHostRequestStatus('approved');
-    setToast('게스트 이용을 승인했어요');
-  };
-
-  const rejectHostRequest = () => {
-    setHostRequestStatus('rejected');
-    setToast('요청을 거절했어요 · 게스트에게 사유가 안내됩니다');
-  };
-
-  const completeRegistration = useCallback(() => {
-    setTab('my');
-    setToast('검수 요청이 접수됐어요');
-  }, []);
-
-  const renderScreen = () => {
-    if (selectedSpace) {
-      return <SpaceDetailScreen space={selectedSpace} onBack={() => setSelectedSpace(null)} onBook={() => setBookingOpen(true)} />;
-    }
-    switch (tab) {
-      case 'map':
-        return <MapScreen onOpenSpace={openSpace} />;
-      case 'register':
-        return <RegisterScreen onComplete={completeRegistration} />;
-      case 'requests':
-        return <RequestsScreen guestStatus={approvalStatus} hostRequestStatus={hostRequestStatus} onApproveHostRequest={approveHostRequest} onRejectHostRequest={rejectHostRequest} />;
-      case 'my':
-        return <MyScreen />;
-      default:
-        return <HomeScreen onOpenSpace={openSpace} onOpenTab={openTab} />;
-    }
-  };
-
-  const shellWidth = Platform.OS === 'web' ? Math.min(width, 520) : width;
-  const bookingSpace = selectedSpace ?? spaces[0];
+  if (!state.hydrated) {
+    return (
+      <View style={[styles.splash, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.blue} size="large" />
+      </View>
+    );
+  }
 
   return (
-    <SafeAreaProvider>
-      <View style={styles.page}>
-        <SafeAreaView edges={['top']} style={[styles.appShell, { width: shellWidth }]}>
-          <StatusBar style="dark" />
-          {renderScreen()}
-          {!selectedSpace && <BottomNav active={tab} onChange={openTab} pendingCount={hostRequestStatus === 'pending' ? 1 : 0} />}
-          {toast && <View style={styles.toast}><Text style={styles.toastText}>{toast}</Text></View>}
-          <BookingSheet
-            visible={bookingOpen}
-            space={bookingSpace}
-            duration={duration}
-            onDurationChange={setDuration}
-            onClose={() => setBookingOpen(false)}
-            onConfirm={submitApproval}
-          />
-        </SafeAreaView>
-      </View>
-    </SafeAreaProvider>
+    <NavigationContainer theme={navTheme}>
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      <RootNavigator />
+    </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
+    <GestureHandlerRootView style={styles.root}>
+      <SafeAreaProvider>
+        <ThemeProvider>
+          <StoreProvider>
+            <ToastProvider>
+              <NavTree />
+            </ToastProvider>
+          </StoreProvider>
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
-  page: { flex: 1, backgroundColor: Platform.OS === 'web' ? '#E8ECF2' : colors.background, alignItems: 'center' },
-  appShell: { flex: 1, backgroundColor: colors.background, overflow: 'hidden', ...(Platform.OS === 'web' ? { ...shadow, borderRadius: radii.md } : {}) },
-  toast: { position: 'absolute', left: 28, right: 28, bottom: 94, minHeight: 48, paddingHorizontal: 16, borderRadius: radii.md, backgroundColor: colors.charcoal, alignItems: 'center', justifyContent: 'center', ...shadow },
-  toastText: { color: colors.surface, fontSize: 13, fontWeight: '800', textAlign: 'center' },
+  root: { flex: 1 },
+  splash: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

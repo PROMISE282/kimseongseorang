@@ -1,16 +1,30 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Brand } from '../components/Brand';
 import { Chip } from '../components/Chip';
+import { EmptyState } from '../components/EmptyState';
 import { MapCanvas } from '../components/MapCanvas';
+import { Screen } from '../components/Screen';
 import { SpaceCard } from '../components/SpaceCard';
-import { spaces } from '../data';
-import { colors, radii } from '../theme';
-import type { Space, TabKey } from '../types';
+import {
+  useSpaces,
+  useStore,
+  useUnreadCount,
+  usePrimaryVehicle,
+} from '../store/StoreProvider';
+import type { Space } from '../store/types';
+import { useTheme } from '../theme/ThemeProvider';
+import { computeFit } from '../utils/fit';
+import { vehicleClassOrder } from '../utils/format';
+import type { RootStackParamList } from '../navigation/types';
 
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 type IconName = keyof typeof MaterialCommunityIcons.glyphMap;
 
 const trustItems: { icon: IconName; label: string }[] = [
@@ -19,176 +33,247 @@ const trustItems: { icon: IconName; label: string }[] = [
   { icon: 'shield-check-outline', label: '체크인 보장' },
 ];
 
-type HomeScreenProps = {
-  onOpenSpace: (space: Space) => void;
-  onOpenTab: (tab: TabKey) => void;
-};
+const filters = ['전체', '즉시 승인', '내 차 적합', '2천원대'] as const;
+type Filter = (typeof filters)[number];
 
-export function HomeScreen({ onOpenSpace, onOpenTab }: HomeScreenProps) {
+export function HomeScreen() {
+  const navigation = useNavigation<Nav>();
+  const { colors, radii } = useTheme();
+  const tabBarHeight = useBottomTabBarHeight();
+  const spaces = useSpaces();
+  const vehicle = usePrimaryVehicle();
+  const unread = useUnreadCount();
+  const { dispatch } = useStore();
+
   const [query, setQuery] = useState('');
-  const [filter, setFilter] = useState('전체');
-  const [selected, setSelected] = useState(spaces[0]);
+  const [filter, setFilter] = useState<Filter>('전체');
   const [view, setView] = useState<'map' | 'list'>('map');
+  const [selectedId, setSelectedId] = useState<string | undefined>(spaces[0]?.id);
 
   const visibleSpaces = useMemo(() => {
-    const normalized = query.trim().toLowerCase();
-    const searched = normalized
-      ? spaces.filter((space) => `${space.title} ${space.area} ${space.walk}`.toLowerCase().includes(normalized))
-      : spaces;
-    if (filter === 'SUV') return searched.filter((space) => space.vehicle.includes('SUV'));
-    if (filter === '즉시 승인') return searched.filter((space) => space.responseTime.includes('즉시'));
-    if (filter === '2천원대') return searched.filter((space) => space.price < 3000);
-    return searched;
-  }, [filter, query]);
+    const q = query.trim().toLowerCase();
+    let list = spaces.filter((s) => s.listed);
+    if (q) list = list.filter((s) => `${s.title} ${s.area} ${s.walk}`.toLowerCase().includes(q));
+    if (filter === '즉시 승인') list = list.filter((s) => s.instant);
+    if (filter === '2천원대') list = list.filter((s) => s.price >= 2000 && s.price < 3000);
+    if (filter === '내 차 적합' && vehicle) {
+      list = list.filter(
+        (s) => vehicleClassOrder.indexOf(vehicle.vClass) <= vehicleClassOrder.indexOf(s.maxClass) && computeFit(s, vehicle).fits,
+      );
+    }
+    return list;
+  }, [spaces, query, filter, vehicle]);
+
+  const current: Space | undefined =
+    visibleSpaces.find((s) => s.id === selectedId) ?? visibleSpaces[0];
+
+  const submitSearch = () => {
+    if (query.trim()) dispatch({ type: 'pushRecentSearch', term: query.trim() });
+  };
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-      <View style={styles.header}>
-        <Brand />
-        <View style={styles.headerActions}>
-          <Pressable accessibilityRole="button" accessibilityLabel="현재 위치 성수동, 지도 열기" style={styles.location} onPress={() => onOpenTab('map')}>
-            <MaterialCommunityIcons name="map-marker" size={16} color={colors.blue} />
-            <Text style={styles.locationText}>성수동</Text>
-            <MaterialCommunityIcons name="chevron-down" size={16} color={colors.ink} />
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="새 알림 1개" onPress={() => Alert.alert('새 알림 1개', '민지님의 공간 이용 요청이 도착했어요.')} style={styles.iconButton}>
-            <MaterialCommunityIcons name="bell-outline" size={22} color={colors.ink} />
-            <View style={styles.notificationDot} />
-          </Pressable>
+    <Screen>
+      <ScrollView
+        contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 24 }]}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <Brand />
+          <View style={styles.headerActions}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="지도에서 성동구 열기"
+              style={[styles.location, { backgroundColor: colors.surface, borderRadius: radii.pill }]}
+              onPress={() => navigation.navigate('Tabs', { screen: 'Map' })}
+            >
+              <MaterialCommunityIcons name="map-marker" size={16} color={colors.blue} />
+              <Text style={[styles.locationText, { color: colors.ink }]}>성동구</Text>
+              <MaterialCommunityIcons name="chevron-down" size={16} color={colors.ink} />
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={unread > 0 ? `읽지 않은 알림 ${unread}개` : '알림'}
+              onPress={() => navigation.navigate('Notifications')}
+              style={[styles.iconButton, { backgroundColor: colors.surface }]}
+            >
+              <MaterialCommunityIcons name="bell-outline" size={22} color={colors.ink} />
+              {unread > 0 && (
+                <View style={[styles.notificationDot, { backgroundColor: colors.danger, borderColor: colors.surface }]} />
+              )}
+            </Pressable>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.searchBar}>
-        <MaterialCommunityIcons name="magnify" size={23} color={colors.subtle} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder="동네·장소·주소로 찾아보세요"
-          placeholderTextColor={colors.subtle}
-          style={styles.searchInput}
-          returnKeyType="search"
-        />
-        {query.length > 0 && (
-          <Pressable accessibilityLabel="검색어 지우기" onPress={() => setQuery('')}>
-            <MaterialCommunityIcons name="close-circle" size={19} color={colors.subtle} />
+        <View style={[styles.searchBar, { backgroundColor: colors.surface, borderColor: colors.line, borderRadius: radii.md }]}>
+          <MaterialCommunityIcons name="magnify" size={22} color={colors.subtle} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            onSubmitEditing={submitSearch}
+            placeholder="동네·장소·주소로 찾아보세요"
+            placeholderTextColor={colors.subtle}
+            style={[styles.searchInput, { color: colors.ink }]}
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <Pressable accessibilityLabel="검색어 지우기" hitSlop={8} onPress={() => setQuery('')}>
+              <MaterialCommunityIcons name="close-circle" size={19} color={colors.subtle} />
+            </Pressable>
+          )}
+        </View>
+
+        <LinearGradient
+          colors={[colors.blue, colors.blueDark]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={[styles.hero, { borderRadius: radii.xl }]}
+        >
+          <View style={[styles.heroPill, { backgroundColor: colors.surface, borderRadius: radii.pill }]}>
+            <MaterialCommunityIcons name="cube-scan" size={13} color={colors.blue} />
+            <Text style={[styles.heroPillText, { color: colors.blueDark }]}>AI로 먼저 확인하는 사유지 주차</Text>
+          </View>
+          <Text style={styles.heroTitle}>빈 공간을 찍으면,{'\n'}안심 주차가 시작돼요.</Text>
+          <Text style={styles.heroBody}>실측 모델과 호스트 승인으로{'\n'}도착 후의 불확실함까지 줄였습니다.</Text>
+          <Pressable
+            accessibilityRole="button"
+            style={[styles.heroButton, { backgroundColor: colors.surface }]}
+            onPress={() => navigation.navigate('Tabs', { screen: 'Register' })}
+          >
+            <Text style={[styles.heroButtonText, { color: colors.blueDark }]}>내 공간 등록하기</Text>
+            <MaterialCommunityIcons name="arrow-right" size={18} color={colors.blue} />
           </Pressable>
+          <View style={styles.heroDecoration}>
+            <MaterialCommunityIcons name="car" size={48} color="rgba(255,255,255,0.95)" />
+          </View>
+        </LinearGradient>
+
+        <View style={[styles.trustRow, { backgroundColor: colors.surface, borderRadius: radii.md }]}>
+          {trustItems.map(({ icon, label }) => (
+            <View key={label} style={styles.trustItem}>
+              <MaterialCommunityIcons name={icon} size={18} color={colors.blue} />
+              <Text style={[styles.trustLabel, { color: colors.ink }]}>{label}</Text>
+            </View>
+          ))}
+        </View>
+
+        <View style={styles.sectionHeading}>
+          <Text style={[styles.sectionTitle, { color: colors.ink }]}>지금 승인 가능한 공간</Text>
+          <View style={[styles.segment, { backgroundColor: colors.surfaceAlt }]}>
+            {(['map', 'list'] as const).map((v) => (
+              <Pressable
+                key={v}
+                accessibilityRole="button"
+                accessibilityLabel={v === 'map' ? '지도 보기' : '목록 보기'}
+                accessibilityState={{ selected: view === v }}
+                onPress={() => setView(v)}
+                style={[styles.segmentItem, view === v && { backgroundColor: colors.surface }]}
+              >
+                <MaterialCommunityIcons
+                  name={v === 'map' ? 'map-outline' : 'format-list-bulleted'}
+                  size={17}
+                  color={view === v ? colors.blue : colors.subtle}
+                />
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
+          {filters.map((label) => (
+            <Chip
+              key={label}
+              label={label}
+              active={filter === label}
+              onPress={() => setFilter((f) => (f === label ? '전체' : label))}
+            />
+          ))}
+        </ScrollView>
+
+        {visibleSpaces.length === 0 ? (
+          <EmptyState
+            icon="map-marker-off-outline"
+            title="일치하는 공간이 없어요"
+            body="다른 동네 이름이나 필터를 시도해보세요."
+          />
+        ) : view === 'map' ? (
+          <>
+            <MapCanvas
+              spaces={visibleSpaces}
+              selectedId={current?.id}
+              onSelect={(s) => setSelectedId(s.id)}
+              onRecenter={() => setSelectedId(visibleSpaces[0]?.id)}
+            />
+            {current && (
+              <View style={styles.cardGap}>
+                <SpaceCard
+                  space={current}
+                  horizontal
+                  onPress={() => navigation.navigate('SpaceDetail', { spaceId: current.id })}
+                />
+              </View>
+            )}
+          </>
+        ) : (
+          <View style={styles.list}>
+            {visibleSpaces.map((space) => (
+              <SpaceCard
+                key={space.id}
+                space={space}
+                horizontal
+                onPress={() => navigation.navigate('SpaceDetail', { spaceId: space.id })}
+              />
+            ))}
+          </View>
         )}
-      </View>
 
-      <LinearGradient colors={['#1267F7', '#0E4DCE']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.hero}>
-        <View style={styles.heroPill}>
-          <MaterialCommunityIcons name="cube-scan" size={14} color={colors.blue} />
-          <Text style={styles.heroPillText}>AI로 먼저 확인하는 사유지 주차</Text>
-        </View>
-        <Text style={styles.heroTitle}>빈 공간을 찍으면,{`\n`}안심 주차가 시작돼요.</Text>
-        <Text style={styles.heroBody}>실측 모델과 호스트 승인으로{`\n`}도착 후의 불확실함까지 줄였습니다.</Text>
-        <Pressable accessibilityRole="button" style={styles.heroButton} onPress={() => onOpenTab('register')}>
-          <Text style={styles.heroButtonText}>내 공간 등록하기</Text>
-          <MaterialCommunityIcons name="arrow-right" size={18} color={colors.blue} />
-        </Pressable>
-        <View style={styles.heroDecoration}>
-          <MaterialCommunityIcons name="car" size={49} color="rgba(255,255,255,0.95)" />
-          <View style={styles.parkingLine} />
-        </View>
-      </LinearGradient>
-
-      <View style={styles.trustRow}>
-        {trustItems.map(({ icon, label }) => (
-          <View key={label} style={styles.trustItem}>
-            <MaterialCommunityIcons name={icon} size={19} color={colors.blue} />
-            <Text style={styles.trustLabel}>{label}</Text>
+        <View style={[styles.promise, { backgroundColor: colors.greenSoft, borderRadius: radii.md }]}>
+          <View style={[styles.promiseIcon, { backgroundColor: colors.surface }]}>
+            <MaterialCommunityIcons name="shield-check" size={22} color={colors.green} />
           </View>
-        ))}
-      </View>
-
-      <View style={styles.sectionHeading}>
-        <Text style={styles.sectionTitle}>지금 승인 가능한 공간</Text>
-        <View style={styles.segment}>
-          <Pressable accessibilityRole="button" accessibilityLabel="지도 보기" accessibilityState={{ selected: view === 'map' }} onPress={() => setView('map')} style={[styles.segmentItem, view === 'map' && styles.segmentActive]}>
-            <MaterialCommunityIcons name="map-outline" size={17} color={view === 'map' ? colors.blue : colors.subtle} />
-          </Pressable>
-          <Pressable accessibilityRole="button" accessibilityLabel="목록 보기" accessibilityState={{ selected: view === 'list' }} onPress={() => setView('list')} style={[styles.segmentItem, view === 'list' && styles.segmentActive]}>
-            <MaterialCommunityIcons name="format-list-bulleted" size={17} color={view === 'list' ? colors.blue : colors.subtle} />
-          </Pressable>
+          <View style={styles.promiseText}>
+            <Text style={[styles.promiseTitle, { color: colors.ink }]}>도착했는데 주차할 수 없다면?</Text>
+            <Text style={[styles.promiseBody, { color: colors.muted }]}>
+              체크인 보장으로 즉시 대체 공간을 연결해요.
+            </Text>
+          </View>
         </View>
-      </View>
-
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-        {['전체', '즉시 승인', 'SUV', '2천원대'].map((label) => (
-          <Chip key={label} label={label} active={filter === label} onPress={() => setFilter(label)} />
-        ))}
       </ScrollView>
-
-      {visibleSpaces.length === 0 ? (
-        <View style={styles.empty}>
-          <MaterialCommunityIcons name="map-marker-off-outline" size={30} color={colors.subtle} />
-          <Text style={styles.emptyTitle}>일치하는 공간이 없어요</Text>
-          <Text style={styles.emptyBody}>다른 동네 이름이나 필터를 시도해보세요.</Text>
-        </View>
-      ) : view === 'map' ? (
-        <>
-          <MapCanvas spaces={visibleSpaces} selectedId={selected.id} onSelect={setSelected} />
-          <View style={styles.cardGap}>
-            <SpaceCard space={visibleSpaces.find((space) => space.id === selected.id) ?? visibleSpaces[0]} onPress={() => onOpenSpace(visibleSpaces.find((space) => space.id === selected.id) ?? visibleSpaces[0])} horizontal />
-          </View>
-        </>
-      ) : (
-        <View style={styles.list}>
-          {visibleSpaces.map((space) => <SpaceCard key={space.id} space={space} onPress={() => onOpenSpace(space)} horizontal />)}
-        </View>
-      )}
-
-      <Pressable accessibilityRole="button" accessibilityLabel="체크인 보장 안내 열기" style={styles.promise} onPress={() => onOpenTab('requests')}>
-        <View style={styles.promiseIcon}>
-          <MaterialCommunityIcons name="shield-check" size={22} color={colors.green} />
-        </View>
-        <View style={styles.promiseText}>
-          <Text style={styles.promiseTitle}>도착했는데 주차할 수 없다면?</Text>
-          <Text style={styles.promiseBody}>체크인 보장으로 즉시 대체 공간을 연결해요.</Text>
-        </View>
-        <MaterialCommunityIcons name="chevron-right" size={22} color={colors.subtle} />
-      </Pressable>
-    </ScrollView>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  content: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 112 },
+  content: { paddingHorizontal: 20, paddingTop: 8 },
   header: { minHeight: 50, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  location: { flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 38, paddingHorizontal: 10, borderRadius: radii.pill, backgroundColor: colors.surface },
-  locationText: { color: colors.ink, fontSize: 13, fontWeight: '800' },
-  iconButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  notificationDot: { position: 'absolute', right: 10, top: 9, width: 6, height: 6, borderRadius: 3, backgroundColor: colors.danger, borderWidth: 1, borderColor: colors.surface },
-  searchBar: { height: 54, borderRadius: radii.md, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  searchInput: { flex: 1, color: colors.ink, fontSize: 15, fontWeight: '600', paddingVertical: 0 },
-  hero: { marginTop: 18, minHeight: 256, padding: 22, borderRadius: radii.xl, overflow: 'hidden' },
-  heroPill: { alignSelf: 'flex-start', minHeight: 29, paddingHorizontal: 10, borderRadius: radii.pill, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', gap: 5 },
-  heroPillText: { color: colors.blueDark, fontSize: 11, fontWeight: '900' },
-  heroTitle: { marginTop: 18, color: colors.surface, fontSize: 27, lineHeight: 36, letterSpacing: -0.7, fontWeight: '900' },
+  location: { flexDirection: 'row', alignItems: 'center', gap: 3, minHeight: 38, paddingHorizontal: 10 },
+  locationText: { fontSize: 13, fontWeight: '800' },
+  iconButton: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  notificationDot: { position: 'absolute', right: 9, top: 8, width: 8, height: 8, borderRadius: 4, borderWidth: 1.5 },
+  searchBar: { height: 54, borderWidth: 1, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', gap: 10 },
+  searchInput: { flex: 1, fontSize: 15, fontWeight: '600', paddingVertical: 0 },
+  hero: { marginTop: 18, minHeight: 250, padding: 22, overflow: 'hidden' },
+  heroPill: { alignSelf: 'flex-start', minHeight: 28, paddingHorizontal: 10, flexDirection: 'row', alignItems: 'center', gap: 5 },
+  heroPillText: { fontSize: 11, fontWeight: '900' },
+  heroTitle: { marginTop: 18, color: '#FFFFFF', fontSize: 26, lineHeight: 35, letterSpacing: -0.7, fontWeight: '900' },
   heroBody: { marginTop: 9, color: '#DCE8FF', fontSize: 13, lineHeight: 20, fontWeight: '600' },
-  heroButton: { marginTop: 18, width: 150, minHeight: 43, paddingHorizontal: 14, borderRadius: 13, backgroundColor: colors.surface, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, zIndex: 2 },
-  heroButtonText: { color: colors.blueDark, fontSize: 13, fontWeight: '900' },
-  heroDecoration: { position: 'absolute', right: 13, bottom: 10, width: 132, height: 92, alignItems: 'center', justifyContent: 'center' },
-  parkingLine: { position: 'absolute', left: 4, right: 4, bottom: 4, height: 52, borderWidth: 3, borderTopWidth: 0, borderColor: 'rgba(255,255,255,0.22)', transform: [{ skewX: '-12deg' }] },
-  trustRow: { marginTop: 12, paddingVertical: 15, paddingHorizontal: 12, borderRadius: radii.md, backgroundColor: colors.surface, flexDirection: 'row', justifyContent: 'space-around' },
+  heroButton: { marginTop: 18, alignSelf: 'flex-start', minHeight: 43, paddingHorizontal: 16, borderRadius: 13, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+  heroButtonText: { fontSize: 13, fontWeight: '900' },
+  heroDecoration: { position: 'absolute', right: 18, bottom: 16 },
+  trustRow: { marginTop: 12, paddingVertical: 15, paddingHorizontal: 12, flexDirection: 'row', justifyContent: 'space-around' },
   trustItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  trustLabel: { color: colors.ink, fontSize: 12, fontWeight: '800' },
+  trustLabel: { fontSize: 12, fontWeight: '800' },
   sectionHeading: { marginTop: 30, marginBottom: 14, flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between' },
-  sectionTitle: { color: colors.ink, fontSize: 22, fontWeight: '900', letterSpacing: -0.6 },
-  segment: { padding: 3, borderRadius: 11, backgroundColor: '#EAEDF1', flexDirection: 'row' },
+  sectionTitle: { fontSize: 22, fontWeight: '900', letterSpacing: -0.6 },
+  segment: { padding: 3, borderRadius: 11, flexDirection: 'row' },
   segmentItem: { width: 36, height: 31, borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
-  segmentActive: { backgroundColor: colors.surface },
-  filters: { gap: 8, paddingBottom: 14 },
+  filters: { gap: 8, paddingBottom: 14, paddingRight: 8 },
   cardGap: { marginTop: 12 },
   list: { gap: 12 },
-  empty: { height: 230, borderRadius: radii.lg, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  emptyTitle: { marginTop: 12, color: colors.ink, fontSize: 16, fontWeight: '900' },
-  emptyBody: { marginTop: 5, color: colors.muted, fontSize: 13, textAlign: 'center' },
-  promise: { marginTop: 18, minHeight: 78, padding: 14, borderRadius: radii.md, backgroundColor: colors.greenSoft, flexDirection: 'row', alignItems: 'center', gap: 11 },
-  promiseIcon: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center' },
+  promise: { marginTop: 18, minHeight: 78, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 11 },
+  promiseIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
   promiseText: { flex: 1 },
-  promiseTitle: { color: colors.ink, fontSize: 14, fontWeight: '900' },
-  promiseBody: { marginTop: 4, color: colors.muted, fontSize: 11, lineHeight: 16, fontWeight: '600' },
+  promiseTitle: { fontSize: 14, fontWeight: '900' },
+  promiseBody: { marginTop: 4, fontSize: 11, lineHeight: 16, fontWeight: '600' },
 });
