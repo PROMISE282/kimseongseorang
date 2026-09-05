@@ -1,6 +1,6 @@
-import { Pressable, StyleSheet, Text, ViewStyle } from 'react-native';
+import { Pressable, StyleSheet, Text, type ViewStyle } from 'react-native';
 
-import { colors, radii } from '../theme';
+import { useTheme } from '../theme/ThemeProvider';
 
 type ChipProps = {
   label: string;
@@ -10,31 +10,36 @@ type ChipProps = {
 };
 
 export function Chip({ label, active = false, onPress, style }: ChipProps) {
+  const { colors, radii } = useTheme();
   return (
     <Pressable
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
       onPress={onPress}
-      style={({ pressed }) => [styles.base, active && styles.active, pressed && styles.pressed, style]}
+      style={({ pressed }) => [
+        styles.base,
+        {
+          borderRadius: radii.pill,
+          borderColor: active ? colors.blue : colors.line,
+          backgroundColor: active ? colors.blue : colors.surface,
+        },
+        pressed && styles.pressed,
+        style,
+      ]}
     >
-      <Text style={[styles.label, active && styles.activeLabel]}>{label}</Text>
+      <Text style={[styles.label, { color: active ? colors.onAccent : colors.muted }]}>{label}</Text>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 40,
+    minHeight: 44,
     paddingHorizontal: 15,
-    borderRadius: radii.pill,
     borderWidth: 1,
-    borderColor: colors.line,
-    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  active: { borderColor: colors.blue, backgroundColor: colors.blue },
-  label: { color: colors.muted, fontSize: 14, fontWeight: '700' },
-  activeLabel: { color: colors.surface },
+  label: { fontSize: 14, fontWeight: '700' },
   pressed: { opacity: 0.72 },
 });

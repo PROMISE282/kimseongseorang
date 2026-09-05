@@ -1,83 +1,147 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Chip } from '../components/Chip';
 import { MapCanvas } from '../components/MapCanvas';
+import { Screen } from '../components/Screen';
 import { SpaceCard } from '../components/SpaceCard';
-import { spaces } from '../data';
-import { colors, radii, shadow } from '../theme';
-import type { Space } from '../types';
+import { useSpaces, usePrimaryVehicle } from '../store/StoreProvider';
+import { useTheme } from '../theme/ThemeProvider';
+import { computeFit } from '../utils/fit';
+import { vehicleClassOrder } from '../utils/format';
+import type { RootStackParamList, TabParamList } from '../navigation/types';
 
-type MapScreenProps = { onOpenSpace: (space: Space) => void };
+type Nav = NativeStackNavigationProp<RootStackParamList>;
 
-export function MapScreen({ onOpenSpace }: MapScreenProps) {
-  const [selected, setSelected] = useState(spaces[0]);
+export function MapScreen() {
+  const navigation = useNavigation<Nav>();
+  const route = useRoute<RouteProp<TabParamList, 'Map'>>();
+  const { colors, radii, shadow } = useTheme();
+  const tabBarHeight = useBottomTabBarHeight();
+  const spaces = useSpaces();
+  const vehicle = usePrimaryVehicle();
+
   const [query, setQuery] = useState('');
-  const [onlyApproved, setOnlyApproved] = useState(true);
-  const [fromNow, setFromNow] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'suv' | 'price'>('all');
+  const [instantOnly, setInstantOnly] = useState(false);
+  const [fromNow, setFromNow] = useState(false);
+  const [fitOnly, setFitOnly] = useState(false);
+  const [cheapFirst, setCheapFirst] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | undefined>(
+    route.params?.focusSpaceId ?? spaces[0]?.id,
+  );
 
   const matches = useMemo(() => {
     const q = query.trim();
-    const searched = q ? spaces.filter((space) => `${space.title} ${space.area}`.includes(q)) : spaces;
-    const approved = onlyApproved
-      ? searched.filter((space) => space.responseTime === '즉시 승인' || Number(space.responseTime.match(/\d+/)?.[0] ?? 99) <= 5)
-      : searched;
-    const timed = fromNow ? approved.filter((space) => space.available.includes('지금') || space.available.includes('오늘')) : approved;
-    const filtered = filter === 'suv' ? timed.filter((space) => space.vehicle.includes('SUV')) : timed;
-    return filter === 'price' ? [...filtered].sort((a, b) => a.price - b.price) : filtered;
-  }, [filter, fromNow, onlyApproved, query]);
+    let list = spaces.filter((s) => s.listed);
+    if (q) list = list.filter((s) => `${s.title} ${s.area}`.includes(q));
+    if (instantOnly) list = list.filter((s) => s.instant);
+    if (fromNow) list = list.filter((s) => s.availableFromNow);
+    if (fitOnly && vehicle) {
+      list = list.filter(
+        (s) => vehicleClassOrder.indexOf(vehicle.vClass) <= vehicleClassOrder.indexOf(s.maxClass) && computeFit(s, vehicle).fits,
+      );
+    }
+    if (cheapFirst) list = [...list].sort((a, b) => a.price - b.price);
+    return list;
+  }, [spaces, query, instantOnly, fromNow, fitOnly, cheapFirst, vehicle]);
 
-  const current = matches.find((space) => space.id === selected.id) ?? matches[0];
+  const current = matches.find((s) => s.id === selectedId) ?? matches[0];
+  const anyFilter = instantOnly || fromNow || fitOnly || cheapFirst || query.trim().length > 0;
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.header}>
-        <Text style={styles.title}>지도에서 찾기</Text>
-        <View style={styles.search}>
+    <Screen>
+      <View style={[styles.header, { backgroundColor: colors.background }]}>
+        <Text style={[styles.title, { color: colors.ink }]}>지도에서 찾기</Text>
+        <View style={[styles.search, { backgroundColor: colors.surface, borderColor: colors.line, borderRadius: radii.md }]}>
           <MaterialCommunityIcons name="magnify" size={21} color={colors.subtle} />
-          <TextInput value={query} onChangeText={setQuery} placeholder="성수동에서 검색" placeholderTextColor={colors.subtle} style={styles.input} />
+          <TextInput
+            value={query}
+            onChangeText={setQuery}
+            placeholder="성동구에서 검색"
+            placeholderTextColor={colors.subtle}
+            style={[styles.input, { color: colors.ink }]}
+          />
+          {anyFilter && (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="필터 초기화"
+              hitSlop={8}
+              onPress={() => {
+                setQuery('');
+                setInstantOnly(false);
+                setFromNow(false);
+                setFitOnly(false);
+                setCheapFirst(false);
+              }}
+            >
+              <Text style={[styles.reset, { color: colors.blue }]}>초기화</Text>
+            </Pressable>
+          )}
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filters}>
-          <Chip label="승인 가능만" active={onlyApproved} onPress={() => setOnlyApproved((value) => !value)} />
-          <Chip label="현재부터" active={fromNow} onPress={() => setFromNow((value) => !value)} />
-          <Chip label="SUV 가능" active={filter === 'suv'} onPress={() => setFilter((value) => value === 'suv' ? 'all' : 'suv')} />
-          <Chip label="가격 낮은 순" active={filter === 'price'} onPress={() => setFilter((value) => value === 'price' ? 'all' : 'price')} />
+          <Chip label="즉시 승인" active={instantOnly} onPress={() => setInstantOnly((v) => !v)} />
+          <Chip label="지금 이용 가능" active={fromNow} onPress={() => setFromNow((v) => !v)} />
+          <Chip label="내 차 적합" active={fitOnly} onPress={() => setFitOnly((v) => !v)} />
+          <Chip label="가격 낮은 순" active={cheapFirst} onPress={() => setCheapFirst((v) => !v)} />
         </ScrollView>
       </View>
-      {matches.length > 0 ? (
-        <>
-          <MapCanvas spaces={matches} selectedId={current.id} onSelect={setSelected} tall />
-          <View style={styles.floatingCard}>
-            <SpaceCard space={current} onPress={() => onOpenSpace(current)} horizontal />
-          </View>
-          <View style={styles.countPill}>
+
+      {matches.length > 0 && current ? (
+        <View style={styles.mapArea}>
+          <MapCanvas
+            spaces={matches}
+            selectedId={current.id}
+            onSelect={(s) => setSelectedId(s.id)}
+            onRecenter={() => setSelectedId(matches[0]?.id)}
+            tall
+          />
+          <View style={[styles.countPill, { backgroundColor: colors.charcoal, borderRadius: radii.pill }]}>
             <Text style={styles.countText}>검증된 공간 {matches.length}개</Text>
           </View>
-        </>
+          <View style={[styles.floatingCard, shadow, { bottom: tabBarHeight + 16 }]}>
+            <SpaceCard
+              space={current}
+              horizontal
+              onPress={() => navigation.navigate('SpaceDetail', { spaceId: current.id })}
+            />
+          </View>
+        </View>
       ) : (
         <View style={styles.empty}>
           <MaterialCommunityIcons name="magnify-close" size={34} color={colors.subtle} />
-          <Text style={styles.emptyText}>검색 결과가 없어요</Text>
-          <Pressable onPress={() => setQuery('')}><Text style={styles.reset}>전체 공간 보기</Text></Pressable>
+          <Text style={[styles.emptyText, { color: colors.ink }]}>조건에 맞는 공간이 없어요</Text>
+          <Pressable
+            onPress={() => {
+              setQuery('');
+              setInstantOnly(false);
+              setFromNow(false);
+              setFitOnly(false);
+              setCheapFirst(false);
+            }}
+          >
+            <Text style={[styles.reset, { color: colors.blue, marginTop: 10 }]}>전체 공간 보기</Text>
+          </Pressable>
         </View>
       )}
-    </View>
+    </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
-  header: { paddingHorizontal: 20, paddingTop: 14, paddingBottom: 12, backgroundColor: colors.background },
-  title: { color: colors.ink, fontSize: 24, fontWeight: '900', letterSpacing: -0.9 },
-  search: { marginTop: 14, height: 50, paddingHorizontal: 15, borderRadius: radii.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, flexDirection: 'row', alignItems: 'center', gap: 9 },
-  input: { flex: 1, color: colors.ink, fontSize: 14, fontWeight: '600', paddingVertical: 0 },
-  filters: { gap: 8, paddingTop: 11 },
-  floatingCard: { position: 'absolute', left: 16, right: 16, bottom: 96, ...shadow },
-  countPill: { position: 'absolute', alignSelf: 'center', top: 194, minHeight: 34, paddingHorizontal: 13, borderRadius: radii.pill, backgroundColor: colors.charcoal, alignItems: 'center', justifyContent: 'center' },
-  countText: { color: colors.surface, fontSize: 12, fontWeight: '800' },
+  header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12, zIndex: 2 },
+  title: { fontSize: 24, fontWeight: '900', letterSpacing: -0.9 },
+  search: { marginTop: 14, height: 50, paddingHorizontal: 15, borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 9 },
+  input: { flex: 1, fontSize: 14, fontWeight: '600', paddingVertical: 0 },
+  reset: { fontSize: 13, fontWeight: '800' },
+  filters: { gap: 8, paddingTop: 11, paddingRight: 8 },
+  mapArea: { flex: 1, position: 'relative' },
+  countPill: { position: 'absolute', alignSelf: 'center', top: 16, minHeight: 34, paddingHorizontal: 13, alignItems: 'center', justifyContent: 'center', zIndex: 3 },
+  countText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  floatingCard: { position: 'absolute', left: 16, right: 16 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  emptyText: { marginTop: 10, color: colors.ink, fontSize: 16, fontWeight: '800' },
-  reset: { marginTop: 10, color: colors.blue, fontSize: 14, fontWeight: '800' },
+  emptyText: { marginTop: 10, fontSize: 16, fontWeight: '800' },
 });

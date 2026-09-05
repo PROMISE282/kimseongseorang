@@ -1,19 +1,22 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { colors } from '../theme';
+import { useTheme } from '../theme/ThemeProvider';
 
-type BrandProps = {
-  compact?: boolean;
-};
-
-export function Brand({ compact = false }: BrandProps) {
+export function Brand({ compact = false }: { compact?: boolean }) {
+  const { colors } = useTheme();
   return (
-    <View style={styles.row} accessibilityLabel="주차모아">
-      <View style={[styles.mark, compact && styles.compactMark]}>
-        <MaterialCommunityIcons name="parking" size={compact ? 17 : 20} color={colors.surface} />
+    <View style={styles.row} accessibilityRole="header" accessibilityLabel="주차모아">
+      <View
+        style={[
+          styles.mark,
+          compact && styles.compactMark,
+          { backgroundColor: colors.blue },
+        ]}
+      >
+        <MaterialCommunityIcons name="parking" size={compact ? 17 : 20} color="#FFFFFF" />
       </View>
-      {!compact && <Text style={styles.wordmark}>주차모아</Text>}
+      {!compact && <Text style={[styles.wordmark, { color: colors.ink }]}>주차모아</Text>}
     </View>
   );
 }
@@ -25,11 +28,10 @@ const styles = StyleSheet.create({
     height: 39,
     borderRadius: 18,
     borderBottomLeftRadius: 8,
-    backgroundColor: colors.blue,
     alignItems: 'center',
     justifyContent: 'center',
     transform: [{ rotate: '-8deg' }],
   },
   compactMark: { width: 30, height: 34 },
-  wordmark: { color: colors.ink, fontSize: 21, fontWeight: '900', letterSpacing: -1 },
+  wordmark: { fontSize: 21, fontWeight: '900', letterSpacing: -1 },
 });

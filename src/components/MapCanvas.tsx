@@ -1,32 +1,43 @@
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { Pressable } from 'react-native';
 
-import { colors, radii, shadow } from '../theme';
-import type { Space } from '../types';
-import { formatWon } from '../data';
+import type { Space } from '../store/types';
+import { useTheme } from '../theme/ThemeProvider';
+import { formatWon } from '../utils/format';
 
 type MapCanvasProps = {
   spaces: Space[];
-  selectedId: string;
+  selectedId: string | undefined;
   onSelect: (space: Space) => void;
+  onRecenter?: () => void;
   tall?: boolean;
 };
 
-export function MapCanvas({ spaces, selectedId, onSelect, tall = false }: MapCanvasProps) {
+const shortPrice = (won: number) => `${Math.round(won / 100) / 10}천`;
+
+export function MapCanvas({ spaces, selectedId, onSelect, onRecenter, tall = false }: MapCanvasProps) {
+  const { colors, radii, shadow } = useTheme();
+
   return (
-    <View style={[styles.map, tall && styles.tallMap]} accessibilityLabel="성수동 주차공간 지도">
-      <View style={[styles.road, styles.roadOne]} />
-      <View style={[styles.road, styles.roadTwo]} />
-      <View style={[styles.road, styles.roadThree]} />
-      <View style={[styles.block, { left: '5%', top: '7%', width: '26%', height: '20%' }]} />
-      <View style={[styles.block, { left: '38%', top: '8%', width: '24%', height: '18%' }]} />
-      <View style={[styles.park, { right: '4%', top: '8%', width: '25%', height: '28%' }]}>
-        <MaterialCommunityIcons name="tree" size={26} color="#6CAA7C" />
+    <View
+      style={[
+        styles.map,
+        { backgroundColor: colors.mapBase, borderColor: colors.line, borderRadius: radii.lg },
+        tall && styles.tallMap,
+      ]}
+      accessibilityLabel="성동구 주차공간 지도"
+    >
+      {[styles.roadOne, styles.roadTwo, styles.roadThree].map((road, i) => (
+        <View key={i} style={[styles.road, road, { backgroundColor: colors.mapRoad, borderColor: colors.line }]} />
+      ))}
+      <View style={[styles.block, { backgroundColor: colors.mapBlock, left: '5%', top: '7%', width: '26%', height: '20%' }]} />
+      <View style={[styles.block, { backgroundColor: colors.mapBlock, left: '38%', top: '8%', width: '24%', height: '18%' }]} />
+      <View style={[styles.park, { backgroundColor: colors.greenSoft, right: '4%', top: '8%', width: '25%', height: '28%' }]}>
+        <MaterialCommunityIcons name="tree" size={24} color={colors.green} />
       </View>
-      <View style={[styles.block, { left: '9%', bottom: '8%', width: '29%', height: '25%' }]} />
-      <View style={[styles.block, { right: '8%', bottom: '8%', width: '32%', height: '22%' }]} />
-      <Text style={[styles.mapLabel, { left: '39%', top: '40%' }]}>성수이로</Text>
-      <Text style={[styles.mapLabel, { left: '8%', bottom: '38%' }]}>서울숲길</Text>
+      <View style={[styles.block, { backgroundColor: colors.mapBlock, left: '9%', bottom: '8%', width: '29%', height: '25%' }]} />
+      <View style={[styles.block, { backgroundColor: colors.mapBlock, right: '8%', bottom: '8%', width: '32%', height: '22%' }]} />
 
       {spaces.map((space) => {
         const selected = space.id === selectedId;
@@ -35,81 +46,83 @@ export function MapCanvas({ spaces, selectedId, onSelect, tall = false }: MapCan
             key={space.id}
             onPress={() => onSelect(space)}
             accessibilityRole="button"
+            accessibilityState={{ selected }}
             accessibilityLabel={`${space.title}, 시간당 ${formatWon(space.price)}`}
             style={[
               styles.marker,
-              { left: `${space.x}%`, top: `${space.y}%` },
+              {
+                left: `${space.x}%`,
+                top: `${space.y}%`,
+                backgroundColor: selected ? colors.blue : colors.surface,
+                borderColor: selected ? colors.blue : colors.ink,
+                zIndex: selected ? 5 : 1,
+              },
+              shadow,
               selected && styles.selectedMarker,
             ]}
           >
-            <Text style={[styles.markerText, selected && styles.selectedMarkerText]}>
-              {Math.round(space.price / 100) / 10}천
+            <Text style={[styles.markerText, { color: selected ? colors.onAccent : colors.ink }]}>
+              {shortPrice(space.price)}
             </Text>
           </Pressable>
         );
       })}
 
-      <View style={styles.currentLocation}>
-        <View style={styles.currentDot} />
+      <View style={[styles.currentLocation, { backgroundColor: `${colors.blue}2A` }]}>
+        <View style={[styles.currentDot, { backgroundColor: colors.blue, borderColor: colors.surface }]} />
       </View>
-      <Pressable accessibilityRole="button" accessibilityLabel="현재 위치로 이동" onPress={() => spaces[0] && onSelect(spaces[0])} style={styles.locationButton}>
-        <MaterialCommunityIcons name="crosshairs-gps" size={22} color={colors.ink} />
-      </Pressable>
+
+      {onRecenter && (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="가까운 공간 보기"
+          onPress={onRecenter}
+          style={[styles.locationButton, shadow, { backgroundColor: colors.surface }]}
+        >
+          <MaterialCommunityIcons name="crosshairs-gps" size={21} color={colors.ink} />
+        </Pressable>
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  map: {
-    height: 286,
-    overflow: 'hidden',
-    borderRadius: radii.lg,
-    backgroundColor: '#EEF1F4',
-    borderWidth: 1,
-    borderColor: '#E0E5EA',
-    position: 'relative',
-  },
-  tallMap: { height: 430, borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0 },
-  road: { position: 'absolute', backgroundColor: '#FFFFFF', borderColor: '#D8DDE3', borderWidth: 1 },
+  map: { height: 286, overflow: 'hidden', borderWidth: 1, position: 'relative' },
+  tallMap: { flex: 1, borderRadius: 0, borderLeftWidth: 0, borderRightWidth: 0 },
+  road: { position: 'absolute', borderWidth: 1 },
   roadOne: { width: '120%', height: 55, left: '-8%', top: '35%', transform: [{ rotate: '-8deg' }] },
   roadTwo: { width: 62, height: '130%', left: '43%', top: '-15%', transform: [{ rotate: '9deg' }] },
   roadThree: { width: '75%', height: 48, left: '-5%', bottom: '20%', transform: [{ rotate: '18deg' }] },
-  block: { position: 'absolute', backgroundColor: '#E1E5E9', borderRadius: 7, borderWidth: 1, borderColor: '#D5DAE0' },
-  park: { position: 'absolute', borderRadius: 8, backgroundColor: '#DDECDD', alignItems: 'center', justifyContent: 'center' },
-  mapLabel: { position: 'absolute', color: '#929AA5', fontSize: 11, fontWeight: '600', transform: [{ rotate: '-7deg' }] },
+  block: { position: 'absolute', borderRadius: 7 },
+  park: { position: 'absolute', borderRadius: 8, alignItems: 'center', justifyContent: 'center' },
   marker: {
     position: 'absolute',
-    minWidth: 55,
-    height: 38,
-    marginLeft: -28,
-    marginTop: -20,
+    minWidth: 52,
+    height: 36,
+    marginLeft: -26,
+    marginTop: -18,
     borderRadius: 13,
     borderBottomLeftRadius: 4,
     paddingHorizontal: 8,
-    backgroundColor: colors.surface,
     borderWidth: 1.5,
-    borderColor: colors.ink,
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow,
   },
-  selectedMarker: { backgroundColor: colors.blue, borderColor: colors.blue, transform: [{ scale: 1.08 }] },
-  markerText: { color: colors.ink, fontSize: 13, fontWeight: '900' },
-  selectedMarkerText: { color: colors.surface },
+  selectedMarker: { transform: [{ scale: 1.1 }] },
+  markerText: { fontSize: 13, fontWeight: '900' },
   currentLocation: {
     position: 'absolute',
     left: '46%',
     top: '55%',
-    width: 48,
-    height: 48,
-    marginLeft: -24,
-    marginTop: -24,
-    borderRadius: 24,
-    backgroundColor: 'rgba(23,105,246,0.18)',
+    width: 46,
+    height: 46,
+    marginLeft: -23,
+    marginTop: -23,
+    borderRadius: 23,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  currentDot: { width: 13, height: 13, borderRadius: 7, backgroundColor: colors.blue, borderWidth: 3, borderColor: colors.surface },
+  currentDot: { width: 13, height: 13, borderRadius: 7, borderWidth: 3 },
   locationButton: {
     position: 'absolute',
     right: 14,
@@ -117,9 +130,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow,
   },
 });
